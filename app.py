@@ -215,6 +215,7 @@ def build_rag_chain(vectorstore: FAISS):
         api_key=GROQ_API_KEY,
         temperature=0.1,
         reasoning_effort="none",
+        streaming=False,
     )
 
     prompt = ChatPromptTemplate.from_messages([
