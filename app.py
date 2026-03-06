@@ -242,9 +242,11 @@ def build_rag_chain(vectorstore: FAISS):
 # =============================================================================
 
 def create_ui(ask_fn):
-    def chat_fn(message, history):
+    def chat_fn(message: str, history: list):
         try:
-            answer, docs = ask_fn(message, history)
+            # type="messages"モードではmessageは文字列
+            question = message if isinstance(message, str) else message.get("text", str(message))
+            answer, docs = ask_fn(question, history)
             return answer
         except Exception as e:
             import traceback
