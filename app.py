@@ -13,7 +13,7 @@ import gradio as gr
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -214,7 +214,7 @@ def build_rag_chain(vectorstore: FAISS):
         model=GROQ_MODEL,
         api_key=GROQ_API_KEY,
         temperature=0.1,
-        model_kwargs={"reasoning_effort": "none"},
+        reasoning_effort="none",
     )
 
     prompt = ChatPromptTemplate.from_messages([
