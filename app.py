@@ -1,9 +1,9 @@
 """
 📚 Vivliostyle ドキュメント チャットbot v3
-Groq (Qwen3-32B) + Gemini Embedding + LangChain + FAISS + Gradio
+Groq (Qwen3-32B) + HuggingFace Embedding + LangChain + FAISS + Gradio
 
-v2 (Gemini API) から LLM を Groq経由のQwen3-32Bに変更。
-Embeddingは引き続き Gemini Embedding 001 を使用。
+v3.1: Gemini Embedding を HuggingFace ローカルEmbedding に変更。
+      GOOGLE_API_KEY 不要。
 """
 
 import os
@@ -12,8 +12,8 @@ import subprocess
 import gradio as gr
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -23,17 +23,19 @@ from langchain_groq import ChatGroq
 # 設定
 # =============================================================================
 
-GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
-GOOGLE_API_KEY  = os.environ.get("GOOGLE_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # Groq モデル設定
 # Qwen3.5 が Groq に追加された際はここを変更するだけでOK
 GROQ_MODEL = "qwen/qwen3-32b"
 
+# HuggingFace Embedding モデル（多言語対応・日本語OK）
+EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+
 # RAG 設定
-TOP_K          = 5
-CHUNK_SIZE     = 1000
-CHUNK_OVERLAP  = 200
+TOP_K         = 5
+CHUNK_SIZE    = 1000
+CHUNK_OVERLAP = 200
 
 # =============================================================================
 # 1. ドキュメント収集・前処理
@@ -92,7 +94,7 @@ def collect_documents() -> list[Document]:
     print("📂 ドキュメントを収集中...")
     all_docs: list[Document] = []
 
-    # --- vivliostyle.org (FAQ / 歴史 / 団体概要) ---
+    # --- vivliostyle.org ---
     if clone_repo("https://github.com/vivliostyle/vivliostyle.org", "/tmp/vivliostyle.org"):
         for path, label in [
             ("/tmp/vivliostyle.org/_docs/ja", "vivliostyle.org/ja"),
@@ -103,13 +105,13 @@ def collect_documents() -> list[Document]:
                 all_docs.extend(docs)
                 print(f"  {label}: {len(docs)} files")
 
-    # --- docs2.vivliostyle.org (CLI / VFM / Themes / Viewer) ---
+    # --- docs2.vivliostyle.org ---
     if clone_repo("https://github.com/vivliostyle/docs2.vivliostyle.org", "/tmp/docs2"):
         docs = load_markdown_files("/tmp/docs2", "docs2.vivliostyle.org")
         all_docs.extend(docs)
         print(f"  docs2.vivliostyle.org: {len(docs)} files")
 
-    # --- 各プロダクトの README.md / CHANGELOG.md ---
+    # --- 各プロダクトの README / CHANGELOG ---
     product_repos = {
         "vivliostyle-cli":    "https://github.com/vivliostyle/vivliostyle-cli",
         "vfm":                "https://github.com/vivliostyle/vfm",
@@ -140,6 +142,14 @@ def collect_documents() -> list[Document]:
 # 2. ベクトルストア構築 / 読み込み
 # =============================================================================
 
+def get_embeddings():
+    return HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+
 def build_vectorstore(documents: list[Document]) -> FAISS:
     print("🔢 Embedding & FAISS インデックス構築中...")
     splitter = RecursiveCharacterTextSplitter(
@@ -150,10 +160,7 @@ def build_vectorstore(documents: list[Document]) -> FAISS:
     chunks = splitter.split_documents(documents)
     print(f"  チャンク数: {len(chunks)}")
 
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="text-embedding-004",
-        google_api_key=GOOGLE_API_KEY,
-    )
+    embeddings = get_embeddings()
     vectorstore = FAISS.from_documents(chunks, embeddings)
     vectorstore.save_local("faiss_index")
     print("  ✅ faiss_index を保存しました")
@@ -161,17 +168,14 @@ def build_vectorstore(documents: list[Document]) -> FAISS:
 
 
 def load_vectorstore(index_dir: str = "faiss_index") -> FAISS:
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="text-embedding-004",
-        google_api_key=GOOGLE_API_KEY,
-    )
+    embeddings = get_embeddings()
     vs = FAISS.load_local(index_dir, embeddings, allow_dangerous_deserialization=True)
-    print(f"✅ faiss_index をロードしました")
+    print("✅ faiss_index をロードしました")
     return vs
 
 
 def get_vectorstore() -> FAISS:
-    """起動時に呼ばれる: インデックスがあれば再利用、なければ構築"""
+    """起動時: インデックスがあれば再利用、なければ構築"""
     if os.path.exists("faiss_index/index.faiss"):
         print("📦 既存の faiss_index を使用")
         return load_vectorstore()
@@ -206,8 +210,6 @@ def build_rag_chain(vectorstore: FAISS):
         search_kwargs={"k": TOP_K}
     )
 
-    # Groq + Qwen3-32B
-    # reasoning_effort="none" で思考モードを無効化し、対話モードで動作させる
     llm = ChatGroq(
         model=GROQ_MODEL,
         api_key=GROQ_API_KEY,
@@ -257,7 +259,7 @@ Vivliostyle（ビブリオスタイル）に関する質問にお答えします
 - Vivliostyle CLI / VFM / Themes / Viewer（ドキュメント・README・CHANGELOG）
 - FAQ / はじめてのVivliostyle / 歴史 / 団体概要（vivliostyle.org）
 
-**技術スタック:** LangChain + Groq (Qwen3-32B) + Gemini Embedding + FAISS + Gradio
+**技術スタック:** LangChain + Groq (Qwen3-32B) + HuggingFace Embedding + FAISS + Gradio
 
 ---
 📝 RAGで参照しているドキュメントの著作権は一般社団法人ビブリオスタイルに帰属します。
@@ -289,8 +291,6 @@ Vivliostyle（ビブリオスタイル）に関する質問にお答えします
 if __name__ == "__main__":
     if not GROQ_API_KEY:
         raise ValueError("環境変数 GROQ_API_KEY が設定されていません")
-    if not GOOGLE_API_KEY:
-        raise ValueError("環境変数 GOOGLE_API_KEY が設定されていません")
 
     print("🚀 Vivliostyle Document Chatbot v3 (Groq / Qwen3-32B) を起動中...")
 
