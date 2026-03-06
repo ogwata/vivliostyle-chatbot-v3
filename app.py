@@ -151,7 +151,7 @@ def build_vectorstore(documents: list[Document]) -> FAISS:
     print(f"  チャンク数: {len(chunks)}")
 
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
+        model="text-embedding-004",
         google_api_key=GOOGLE_API_KEY,
     )
     vectorstore = FAISS.from_documents(chunks, embeddings)
@@ -162,7 +162,7 @@ def build_vectorstore(documents: list[Document]) -> FAISS:
 
 def load_vectorstore(index_dir: str = "faiss_index") -> FAISS:
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
+        model="text-embedding-004",
         google_api_key=GOOGLE_API_KEY,
     )
     vs = FAISS.load_local(index_dir, embeddings, allow_dangerous_deserialization=True)
