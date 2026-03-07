@@ -51,6 +51,15 @@ TOP_K         = 5
 CHUNK_SIZE    = 1000
 CHUNK_OVERLAP = 200
 
+# 入力制限設定
+MAX_INPUT_LENGTH    = 1000   # 質問の最大文字数
+MAX_HISTORY_TURNS   = 20     # 保持する会話履歴の最大ターン数
+RATE_LIMIT_SECONDS  = 5      # 同一セッションからの最小リクエスト間隔（秒）
+
+# ログ設定
+LOG_FILE            = "chat_log.jsonl"   # ログファイルパス（JSONL形式）
+LOG_QUESTION_MAXLEN = 100                # ログに記録する質問文の最大文字数
+
 # =============================================================================
 # 1. ドキュメント収集・前処理
 # =============================================================================
@@ -249,17 +258,150 @@ def build_rag_chain(vectorstore: FAISS):
 
 
 # =============================================================================
+# 3.5. リクエストログ
+# =============================================================================
+
+import json
+import threading
+from datetime import datetime, timezone, timedelta
+
+_log_lock = threading.Lock()
+_JST = timezone(timedelta(hours=9))
+
+
+def log_request(
+    question: str,
+    response_time_ms: float,
+    status: str = "ok",
+    error: str = "",
+    session_id: str = "",
+):
+    """リクエストログを JSONL ファイルに追記する"""
+    entry = {
+        "ts": datetime.now(_JST).strftime("%Y-%m-%d %H:%M:%S"),
+        "session": session_id[:12],  # 先頭12文字に切り詰め
+        "question": question[:LOG_QUESTION_MAXLEN],
+        "response_ms": round(response_time_ms),
+        "status": status,
+    }
+    if error:
+        entry["error"] = error[:200]
+
+    try:
+        with _log_lock:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"⚠️ ログ書き込み失敗: {e}")
+
+
+def get_log_summary() -> str:
+    """ログファイルから直近の利用状況サマリーを生成する（管理用）"""
+    if not os.path.exists(LOG_FILE):
+        return "ログファイルが存在しません。"
+
+    try:
+        with open(LOG_FILE, encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception as e:
+        return f"ログ読み込みエラー: {e}"
+
+    total = len(lines)
+    errors = 0
+    recent_questions: list[str] = []
+
+    for line in lines[-50:]:  # 直近50件を解析
+        try:
+            entry = json.loads(line)
+            if entry.get("status") != "ok":
+                errors += 1
+            recent_questions.append(
+                f"  [{entry.get('ts', '?')}] {entry.get('question', '?')}"
+            )
+        except json.JSONDecodeError:
+            continue
+
+    summary = [
+        f"📊 利用ログサマリー（{LOG_FILE}）",
+        f"  総リクエスト数: {total}",
+        f"  直近50件のエラー数: {errors}",
+        f"",
+        f"📝 直近の質問（最大50件）:",
+    ]
+    summary.extend(recent_questions[-20:])  # 表示は20件まで
+    return "\n".join(summary)
+
+
+# =============================================================================
 # 4. Gradio UI
 # =============================================================================
 
 def create_ui(ask_fn):
-    def chat_fn(message: str, history: list):
+    import time
+    import threading
+
+    # セッション単位の簡易レート制限（メモリ内）
+    _last_request_time: dict[str, float] = {}
+    _rate_lock = threading.Lock()
+
+    def _check_rate_limit(session_id: str) -> bool:
+        """レート制限チェック。制限内なら True、超過なら False"""
+        now = time.time()
+        with _rate_lock:
+            last = _last_request_time.get(session_id, 0)
+            if now - last < RATE_LIMIT_SECONDS:
+                return False
+            _last_request_time[session_id] = now
+            # 古いエントリを掃除（1時間以上前）
+            stale = [k for k, v in _last_request_time.items() if now - v > 3600]
+            for k in stale:
+                del _last_request_time[k]
+            return True
+
+    def _validate_input(message: str) -> str | None:
+        """入力バリデーション。問題があればエラーメッセージを返す"""
+        if not message or not message.strip():
+            return "⚠️ 質問を入力してください。"
+        if len(message) > MAX_INPUT_LENGTH:
+            return f"⚠️ 質問が長すぎます（{len(message)}文字）。{MAX_INPUT_LENGTH}文字以内で入力してください。"
+        return None
+
+    def chat_fn(message: str, history: list, request: gr.Request):
+        import time as _time
+
+        # レート制限（リクエストのクライアント情報で識別）
+        session_id = "default"
+        if request:
+            session_id = request.session_hash or request.client.host or "default"
+        if not _check_rate_limit(session_id):
+            log_request(message, 0, status="rate_limited", session_id=session_id)
+            return f"⚠️ リクエストが多すぎます。{RATE_LIMIT_SECONDS}秒以上間隔を空けてください。"
+
+        # 入力バリデーション
+        error = _validate_input(message)
+        if error:
+            log_request(message, 0, status="invalid_input", session_id=session_id)
+            return error
+
+        # 入力をサニタイズ（前後の空白除去）
+        message = message.strip()
+
+        # 会話履歴を制限
+        if history and len(history) > MAX_HISTORY_TURNS:
+            history = history[-MAX_HISTORY_TURNS:]
+
+        start = _time.time()
         try:
             answer, docs = ask_fn(message, history)
+            elapsed = (_time.time() - start) * 1000
+            log_request(message, elapsed, status="ok", session_id=session_id)
             return answer
         except Exception as e:
+            elapsed = (_time.time() - start) * 1000
             import traceback
             traceback.print_exc()
+            log_request(message, elapsed, status="error",
+                        error=f"{type(e).__name__}: {str(e)}", session_id=session_id)
             return f"⚠️ エラーが発生しました: {type(e).__name__}: {str(e)}"
 
     TITLE = "📚 Vivliostyle ドキュメント アシスタント (v3: Groq / Qwen3-32B)"
@@ -288,8 +430,28 @@ Vivliostyle（ビブリオスタイル）に関する質問にお答えします
         title=TITLE,
         description=DESCRIPTION,
         examples=EXAMPLES,
+        textbox=gr.Textbox(
+            placeholder="Vivliostyleについて質問してください（最大1000文字）",
+            max_lines=10,
+        ),
     )
-    return demo
+
+    # ログ閲覧UI（Blocksでラップ）
+    with gr.Blocks(title="Vivliostyle ドキュメント アシスタント") as app:
+        with gr.Tabs():
+            with gr.TabItem("💬 チャット"):
+                demo.render()
+            with gr.TabItem("📊 利用ログ"):
+                gr.Markdown("### 📊 利用状況ログ\nコンテナ再起動でリセットされます。")
+                log_output = gr.Textbox(
+                    label="ログサマリー",
+                    lines=25,
+                    interactive=False,
+                )
+                refresh_btn = gr.Button("🔄 ログを更新")
+                refresh_btn.click(fn=lambda: get_log_summary(), outputs=log_output)
+
+    return app
 
 
 # =============================================================================
