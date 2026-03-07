@@ -38,6 +38,7 @@ _gc_utils.get_type = _patched_get_type
 # =============================================================================
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 # Groq モデル設定
 # Qwen3.5 が Groq に追加された際はここを変更するだけでOK
@@ -442,14 +443,43 @@ Vivliostyle（ビブリオスタイル）に関する質問にお答えします
             with gr.TabItem("💬 チャット"):
                 demo.render()
             with gr.TabItem("📊 利用ログ"):
-                gr.Markdown("### 📊 利用状況ログ\nコンテナ再起動でリセットされます。")
+                gr.Markdown("### 📊 利用状況ログ\n管理者パスワードを入力してください。")
+                with gr.Row():
+                    password_input = gr.Textbox(
+                        label="管理者パスワード",
+                        type="password",
+                        scale=3,
+                    )
+                    auth_btn = gr.Button("🔓 認証してログ表示", scale=1)
                 log_output = gr.Textbox(
                     label="ログサマリー",
                     lines=25,
                     interactive=False,
                 )
-                refresh_btn = gr.Button("🔄 ログを更新")
-                refresh_btn.click(fn=lambda: get_log_summary(), outputs=log_output)
+                refresh_btn = gr.Button("🔄 ログを更新", interactive=False)
+
+                def authenticate(password):
+                    if not ADMIN_PASSWORD:
+                        return "⚠️ ADMIN_PASSWORD が設定されていません。", gr.update(interactive=False)
+                    if password == ADMIN_PASSWORD:
+                        return get_log_summary(), gr.update(interactive=True)
+                    return "❌ パスワードが違います。", gr.update(interactive=False)
+
+                def refresh_with_auth(password):
+                    if password == ADMIN_PASSWORD:
+                        return get_log_summary()
+                    return "❌ パスワードが違います。再度認証してください。"
+
+                auth_btn.click(
+                    fn=authenticate,
+                    inputs=password_input,
+                    outputs=[log_output, refresh_btn],
+                )
+                refresh_btn.click(
+                    fn=refresh_with_auth,
+                    inputs=password_input,
+                    outputs=log_output,
+                )
 
     return app
 
