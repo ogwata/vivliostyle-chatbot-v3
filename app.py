@@ -1,7 +1,6 @@
 """
 📚 Vivliostyle ドキュメント チャットbot v3
 Groq (Qwen3-32B) + HuggingFace Embedding + LangChain + FAISS + Gradio
-
 v3.1: Gemini Embedding を HuggingFace ローカルEmbedding に変更。
       GOOGLE_API_KEY 不要。
 """
@@ -189,17 +188,14 @@ def get_vectorstore() -> FAISS:
 
 SYSTEM_PROMPT = """\
 あなたはVivliostyle（ビブリオスタイル）の公式ドキュメントに精通したアシスタントです。
-
 【最重要ルール】
 1. 回答は必ず提供されたコンテキスト（ドキュメント）の情報に基づいてください。
 2. コンテキストに情報がない場合は、「提供されているドキュメントには該当する情報が見つかりませんでした」と正直に伝えてください。
 3. 推測や補完で回答してはいけません。
-
 【回答スタイル】
 - 日本語で丁寧に回答してください。
 - 必要に応じてコードブロックや箇条書きを使い、わかりやすく整理してください。
 - 回答の最後に「📖 出典: [ドキュメント名]」を記載してください。
-
 【コンテキスト】
 {context}
 """
@@ -244,9 +240,7 @@ def build_rag_chain(vectorstore: FAISS):
 def create_ui(ask_fn):
     def chat_fn(message: str, history: list):
         try:
-            # type="messages"モードではmessageは文字列
-            question = message if isinstance(message, str) else message.get("text", str(message))
-            answer, docs = ask_fn(question, history)
+            answer, docs = ask_fn(message, history)
             return answer
         except Exception as e:
             import traceback
@@ -257,13 +251,10 @@ def create_ui(ask_fn):
 
     DESCRIPTION = """\
 Vivliostyle（ビブリオスタイル）に関する質問にお答えします。
-
 **対応ドキュメント:**
 - Vivliostyle CLI / VFM / Themes / Viewer（ドキュメント・README・CHANGELOG）
 - FAQ / はじめてのVivliostyle / 歴史 / 団体概要（vivliostyle.org）
-
 **技術スタック:** LangChain + Groq (Qwen3-32B) + HuggingFace Embedding + FAISS + Gradio
-
 ---
 📝 RAGで参照しているドキュメントの著作権は一般社団法人ビブリオスタイルに帰属します。
 """
@@ -282,7 +273,6 @@ Vivliostyle（ビブリオスタイル）に関する質問にお答えします
         title=TITLE,
         description=DESCRIPTION,
         examples=EXAMPLES,
-        type="messages",
     )
     return demo
 
