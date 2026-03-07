@@ -19,6 +19,21 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
 # =============================================================================
+# Monkey-patch: gradio_client の get_type が bool を受け取るとクラッシュする問題を修正
+# See: https://github.com/gradio-app/gradio/issues/11084
+# =============================================================================
+import gradio_client.utils as _gc_utils
+
+_original_get_type = _gc_utils.get_type
+
+def _patched_get_type(schema):
+    if isinstance(schema, bool):
+        return "boolean"
+    return _original_get_type(schema)
+
+_gc_utils.get_type = _patched_get_type
+
+# =============================================================================
 # 設定
 # =============================================================================
 
