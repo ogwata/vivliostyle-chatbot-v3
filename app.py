@@ -48,7 +48,7 @@ GROQ_MODEL = "qwen/qwen3-32b"
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 # RAG 設定
-TOP_K         = 5
+TOP_K         = 8
 CHUNK_SIZE    = 1000
 CHUNK_OVERLAP = 200
 
@@ -212,15 +212,19 @@ def get_vectorstore() -> FAISS:
 # =============================================================================
 
 SYSTEM_PROMPT = """\
-あなたはVivliostyle（ビブリオスタイル）の公式ドキュメントに精通したアシスタントです。
-【最重要ルール】
-1. 回答は必ず提供されたコンテキスト（ドキュメント）の情報に基づいてください。
-2. コンテキストに情報がない場合は、「提供されているドキュメントには該当する情報が見つかりませんでした」と正直に伝えてください。
-3. 推測や補完で回答してはいけません。
+あなたはVivliostyle（ビブリオスタイル）と、その基盤となるCSS仕様・日本語組版（JLREQ）に精通したアシスタントです。
+
+【回答の方針】
+1. まず提供されたコンテキスト（ドキュメント）から回答に使える情報を探してください。
+2. コンテキストに直接の回答がなくても、関連するCSS仕様（CSS Text、CSS Writing Modes、CSS Paged Media、CSS Fontsなど）やJLREQ（日本語組版処理の要件）に関する記述がコンテキスト内にあれば、それを活用して回答してください。
+3. コンテキスト内の情報を組み合わせて回答できる場合は、積極的に回答してください。
+4. コンテキストに関連する情報が全くない場合のみ、「提供されているドキュメントには該当する情報が見つかりませんでした」と伝えてください。
+
 【回答スタイル】
 - 日本語で丁寧に回答してください。
 - 必要に応じてコードブロックや箇条書きを使い、わかりやすく整理してください。
 - 回答の最後に「📖 出典: [ドキュメント名]」を記載してください。
+
 【コンテキスト】
 {context}
 """
@@ -247,7 +251,45 @@ def build_rag_chain(vectorstore: FAISS):
     chain = prompt | llm | StrOutputParser()
 
     def ask(question: str, history=None) -> tuple[str, list]:
+        # メイン検索
         retrieved_docs = retriever.invoke(question)
+
+        # 補強検索: CSS仕様・JLREQ関連のキーワードが含まれる場合、
+        # 関連用語でも追加検索してコンテキストを広げる
+        css_keywords = {
+            "ライティングモード": "writing-mode CSS Writing Modes",
+            "writing-mode": "writing-mode 縦書き 横書き",
+            "縦書き": "writing-mode vertical-rl 縦組",
+            "横書き": "writing-mode horizontal-tb 横組",
+            "ページ": "CSS Paged Media @page",
+            "@page": "CSS Paged Media ページ",
+            "フォント": "CSS Fonts font-family",
+            "ルビ": "CSS Ruby ruby JLREQ",
+            "圏点": "text-emphasis 傍点",
+            "禁則": "line-break word-break JLREQ 禁則処理",
+            "行間": "line-height 行送り JLREQ",
+            "段組": "CSS Multi-column column",
+            "柱": "running header ページヘッダー",
+            "ノンブル": "page counter ページ番号",
+            "目次": "table of contents toc",
+            "JLREQ": "日本語組版 JLREQ jlreq",
+            "組版": "typesetting 組版 JLREQ",
+        }
+
+        supplemental_queries = []
+        for keyword, expansion in css_keywords.items():
+            if keyword.lower() in question.lower():
+                supplemental_queries.append(expansion)
+
+        # 重複排除しつつ補強ドキュメントを追加
+        seen_contents = {doc.page_content for doc in retrieved_docs}
+        for query in supplemental_queries[:2]:  # 最大2件の補強検索
+            extra_docs = vectorstore.similarity_search(query, k=3)
+            for doc in extra_docs:
+                if doc.page_content not in seen_contents:
+                    retrieved_docs.append(doc)
+                    seen_contents.add(doc.page_content)
+
         context = "\n\n---\n\n".join(
             f"【{doc.metadata.get('source','不明')} / {doc.metadata.get('file','')}】\n{doc.page_content}"
             for doc in retrieved_docs
