@@ -1,0 +1,9 @@
+{
+  "_comment": "Groq がホストするモデル一覧を監視し、使用中以外の Qwen 系モデルが出たら通知する設定。",
+  "watch_patterns": ["qwen"],
+  "_watch_patterns_comment": "ここに含む文字列（小文字一致）にマッチするモデル ID を監視対象にする。Qwen 以外も見たければ追加（例: \"llama\", \"deepseek\"）。",
+  "model_in_use_fallback": "qwen/qwen3-32b",
+  "_model_in_use_comment": "使用中モデルは app.py の GROQ_MODEL から自動取得。取れない場合のみこの値を使う。",
+  "acknowledged_models": [],
+  "_acknowledged_comment": "確認済みで通知不要にしたいモデル ID をここに足すと候補から外れる。"
+}

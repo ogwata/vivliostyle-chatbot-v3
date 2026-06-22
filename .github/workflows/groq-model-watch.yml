@@ -1,0 +1,32 @@
+name: groq-model-watch
+
+# Groq がホストするモデル一覧を定期チェックし、使用中以外の Qwen 系モデルが
+# 追加された場合（または使用中モデルが消えた場合）に 1 件の追跡 Issue で通知します。
+
+on:
+  schedule:
+    - cron: "30 23 * * *"   # UTC 23:30 = JST 08:30（dep-watch と時間をずらす）
+  workflow_dispatch:        # 手動実行も可能
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check Groq model availability and notify via Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.VIVLIO_GROQ_API_KEY }}
+          GH_REPO: ${{ github.repository }}
+        run: python .github/scripts/check_groq_models.py
