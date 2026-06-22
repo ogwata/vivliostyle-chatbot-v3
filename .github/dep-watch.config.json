@@ -1,0 +1,16 @@
+{
+  "_comment": "watch-list 設定。name=PyPIパッケージ名, current=現在運用中のバージョン。latest>current のとき更新ありとして通知します。current=null は情報表示のみ（未ピン＝ビルド時に最新が入るため参考扱い）。",
+  "scan_requirements": true,
+  "_scan_requirements_comment": "true の場合、requirements.txt の 'pkg==x.y.z' のピン留めを自動で取り込み current に反映します。",
+  "packages": [
+    { "name": "gradio",                     "current": "5.12.0", "note": "Gradio UI。requirements.txt で ==5.12.0 にピン。README 先頭の sdk_version とも一致させること（HF Space 起動設定）。" },
+    { "name": "langchain",                  "current": null, "note": "未ピン（ビルド時に最新）。メジャー更新は破壊的変更に注意。情報表示のみ。" },
+    { "name": "langchain-core",             "current": null, "note": "未ピン。langchain 群の基盤。情報表示のみ。" },
+    { "name": "langchain-community",        "current": null, "note": "未ピン。FAISS 連携。情報表示のみ。" },
+    { "name": "langchain-text-splitters",   "current": null, "note": "未ピン。RecursiveCharacterTextSplitter。情報表示のみ。" },
+    { "name": "langchain-huggingface",      "current": null, "note": "未ピン。HuggingFaceEmbeddings。情報表示のみ。" },
+    { "name": "langchain-groq",             "current": null, "note": "未ピン。ChatGroq（Qwen3-32B）。情報表示のみ。" },
+    { "name": "faiss-cpu",                  "current": null, "note": "未ピン。ベクトル検索。情報表示のみ。" },
+    { "name": "sentence-transformers",      "current": null, "note": "未ピン。埋め込みモデル。情報表示のみ。" }
+  ]
+}

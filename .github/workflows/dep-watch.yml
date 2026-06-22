@@ -1,0 +1,32 @@
+name: dep-watch
+
+# watch-list のライブラリに新バージョンが出ていないかを毎日チェックし、
+# 更新があれば 1 件の追跡 Issue を作成 / 更新して通知します。
+# 現在版は requirements.txt の `==` ピンから自動取得します。
+
+on:
+  schedule:
+    - cron: "0 23 * * *"   # UTC 23:00 = JST 08:00
+  workflow_dispatch:        # 手動実行も可能
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check dependency updates and notify via Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python .github/scripts/check_deps.py
