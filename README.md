@@ -48,3 +48,32 @@ Vivliostyle（ビブリオスタイル）の公式ドキュメントを学習さ
 ```python
 GROQ_MODEL = "qwen/qwen3-32b"  # ← ここを変更するだけ
 ```
+
+## 開発・デプロイ（運用メモ）
+
+このリポジトリ（GitHub）が正（source of truth）です。`main` に push すると、
+GitHub Actions（`.github/workflows/sync-to-hf.yml`）が自動で Hugging Face Space に
+同期し、デモが更新されます。Hugging Face を直接編集する必要はありません。
+
+### 更新の手順
+
+ローカルで編集したら、以下だけで「GitHub への記録 → HF Space への反映」まで完了します。
+
+```bash
+git add .
+git commit -m "変更内容"
+git push
+```
+
+### リモート構成
+
+| リモート | 用途 |
+|---|---|
+| `origin` | GitHub（正・普段触る方） |
+| `space`  | Hugging Face Space（自動デプロイ先・直接は触らない） |
+
+### シークレット
+
+`GROQ_API_KEY` と `ADMIN_PASSWORD` は Hugging Face Space の Settings → Secrets に
+保存されており、コードには含まれません。GitHub 側には同期用の HF 書き込みトークンを
+Actions secret `VIVLIO_HF_SYNC_TOKEN` として登録しています。
