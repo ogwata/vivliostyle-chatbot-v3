@@ -16,6 +16,7 @@ import os
 import re
 import glob
 import datetime
+import time
 import urllib.request
 import urllib.error
 
@@ -173,9 +174,16 @@ def gh(method, path, token, payload=None):
     req.add_header("Authorization", "Bearer " + token)
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("User-Agent", "dep-watch-action")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        body = r.read().decode("utf-8", "replace")
-        return json.loads(body) if body else {}
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                body = r.read().decode("utf-8", "replace")
+                return json.loads(body) if body else {}
+        except urllib.error.HTTPError as e:
+            if e.code not in (502, 503, 504) or attempt == 2:
+                raise
+            print("WARN: GitHub API %d, retrying (%d/3)..." % (e.code, attempt + 1))
+            time.sleep(2 ** attempt)
 
 
 def ensure_label(repo, token):
